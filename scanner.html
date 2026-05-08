@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="th">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>SUT Hospital - Station-PI-Ward1</title>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
+    <style>
+        :root {
+            --sut-orange: #E65100;
+            --bg: #F0F2F5;
+            --success: #2E7D32;
+            --warn: #F57F17;
+        }
+
+        body {
+            font-family: 'Kanit', sans-serif;
+            background: var(--bg);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .app-header {
+            width: 100%;
+            background: white;
+            padding: 20px 0;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+            margin-bottom: 15px;
+        }
+
+        .station-badge {
+            background: #FFF3E0;
+            color: var(--sut-orange);
+            padding: 5px 15px;
+            border-radius: 50px;
+            font-size: 14px;
+            font-weight: 600;
+            border: 1px solid var(--sut-orange);
+            display: inline-block;
+            margin-top: 5px;
+        }
+
+        /* ── Vehicle Selector ── */
+        .vehicle-selector {
+            width: 90%;
+            max-width: 400px;
+            margin-bottom: 12px;
+        }
+
+        .vehicle-selector label {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            color: #555;
+            margin-bottom: 6px;
+        }
+
+        .vehicle-selector select {
+            width: 100%;
+            padding: 12px 16px;
+            font-family: 'Kanit', sans-serif;
+            font-size: 15px;
+            font-weight: 500;
+            border: 2px solid #ddd;
+            border-radius: 16px;
+            background: white;
+            color: #333;
+            appearance: none;
+            -webkit-appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%23666' viewBox='0 0 16 16'%3E%3Cpath d='M1.646 4.646a.5.5 0 0 1 .708 0L8 10.293l5.646-5.647a.5.5 0 0 1 .708.708l-6 6a.5.5 0 0 1-.708 0l-6-6a.5.5 0 0 1 0-.708z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 16px center;
+            background-size: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+            transition: border-color 0.3s, box-shadow 0.3s;
+            cursor: pointer;
+        }
+
+        .vehicle-selector select:focus {
+            outline: none;
+            border-color: var(--sut-orange);
+            box-shadow: 0 0 0 3px rgba(230, 81, 0, 0.12);
+        }
+
+        .vehicle-selector select.selected {
+            border-color: var(--success);
+            background-color: #f6fdf6;
+        }
+
+        .vehicle-selector .vehicle-status {
+            margin-top: 6px;
+            font-size: 12px;
+            color: #999;
+            text-align: center;
+            transition: color 0.3s;
+        }
+
+        .vehicle-selector .vehicle-status.active {
+            color: var(--success);
+            font-weight: 500;
+        }
+
+        .vehicle-selector .vehicle-status.loading {
+            color: var(--sut-orange);
+        }
+
+        .scanner-card {
+            width: 90%;
+            max-width: 400px;
+            background: white;
+            padding: 12px;
+            border-radius: 28px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+            position: relative;
+        }
+
+        /* ── Scanner overlay (disabled state) ── */
+        .scanner-overlay {
+            display: none;
+            position: absolute;
+            inset: 0;
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(4px);
+            border-radius: 28px;
+            z-index: 10;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            gap: 8px;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .scanner-overlay.show {
+            display: flex;
+        }
+
+        .scanner-overlay .overlay-icon {
+            font-size: 36px;
+        }
+
+        .scanner-overlay .overlay-text {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--sut-orange);
+        }
+
+        #reader {
+            width: 100%;
+            border-radius: 20px;
+            overflow: hidden;
+        }
+
+        #status-box {
+            width: 85%;
+            max-width: 360px;
+            margin-top: 20px;
+            padding: 20px;
+            border-radius: 20px;
+            text-align: center;
+            background: white;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+            transition: all 0.3s ease;
+        }
+
+        .success {
+            background: #E8F5E9 !important;
+            color: var(--success) !important;
+            border: 2px solid var(--success);
+        }
+
+        .waiting {
+            background: #FFF8E1 !important;
+            color: var(--warn) !important;
+            border: 2px solid var(--warn);
+        }
+
+        .error {
+            background: #FFEBEE !important;
+            color: #C62828 !important;
+            border: 2px solid #C62828;
+        }
+
+        .footer {
+            margin-top: auto;
+            padding: 20px;
+            color: #999;
+            font-size: 11px;
+        }
+
+        /* ── Debug Console ── */
+        #debug-log {
+            width: 90%;
+            max-width: 400px;
+            margin-top: 12px;
+            padding: 12px;
+            border-radius: 12px;
+            background: #263238;
+            color: #B2FF59;
+            font-family: 'Courier New', monospace;
+            font-size: 11px;
+            max-height: 150px;
+            overflow-y: auto;
+            display: none;
+            word-break: break-all;
+        }
+
+        #debug-log.show {
+            display: block;
+        }
+
+        .debug-toggle {
+            margin-top: 8px;
+            font-size: 11px;
+            color: #aaa;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+
+        .debug-toggle:hover {
+            color: var(--sut-orange);
+        }
+
+        /* ── Camera Permission UI ── */
+        .camera-error-box {
+            display: none;
+            width: 90%;
+            max-width: 400px;
+            background: #FFF3E0;
+            border: 2px solid var(--sut-orange);
+            border-radius: 16px;
+            padding: 20px;
+            text-align: center;
+            margin-bottom: 12px;
+        }
+
+        .camera-error-box.show {
+            display: block;
+        }
+
+        .camera-error-box .error-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #BF360C;
+            margin-bottom: 8px;
+        }
+
+        .camera-error-box .error-desc {
+            font-size: 13px;
+            color: #5D4037;
+            margin-bottom: 14px;
+            line-height: 1.5;
+        }
+
+        .btn-retry-camera {
+            background: var(--sut-orange);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            padding: 12px 28px;
+            font-family: 'Kanit', sans-serif;
+            font-size: 15px;
+            font-weight: 500;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(230, 81, 0, 0.3);
+            transition: transform 0.2s;
+        }
+
+        .btn-retry-camera:active {
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="app-header">
+        <h1 style="color: var(--sut-orange); font-size: 18px; margin:0;">🏥 SUT Asset Tracking</h1>
+        <div class="station-badge">📡 Station ID: Station-PI-Ward1</div>
+    </div>
+
+    <!-- ── Vehicle Selector ── -->
+    <div class="vehicle-selector">
+        <label for="vehicleSelect">🚛 เลือกรถที่กำลังใช้งาน</label>
+        <select id="vehicleSelect">
+            <option value="">-- กรุณาเลือกรถ --</option>
+        </select>
+        <div class="vehicle-status loading" id="vehicleStatus">⏳ กำลังโหลดรายการรถ...</div>
+    </div>
+
+    <div class="scanner-card">
+        <!-- Overlay: Step 1 เลือกรถ / Step 2 ขอสิทธิ์กล้อง -->
+        <div class="scanner-overlay show" id="scannerOverlay">
+            <!-- Phase 1: เลือกรถก่อน -->
+            <div id="overlayPhase1">
+                <div class="overlay-icon">🚛</div>
+                <div class="overlay-text">กรุณาเลือกรถก่อนเริ่มสแกน</div>
+            </div>
+            <!-- Phase 2: กดขอสิทธิ์กล้อง -->
+            <div id="overlayPhase2" style="display:none;">
+                <div class="overlay-icon">📷</div>
+                <div class="overlay-text" style="margin-bottom:12px;">เลือกรถเรียบร้อย — กดปุ่มด้านล่างเพื่อเปิดกล้อง
+                </div>
+                <button class="btn-retry-camera" onclick="requestCameraAndStartScanner()" id="btnRequestCamera">
+                    📷 Request Camera Permissions
+                </button>
+            </div>
+        </div>
+        <div id="reader"></div>
+    </div>
+
+    <!-- Camera Permission Error + Retry -->
+    <div class="camera-error-box" id="cameraErrorBox">
+        <div class="error-title">📷 ไม่สามารถเข้าถึงกล้องได้</div>
+        <div class="error-desc" id="cameraErrorDesc">
+            เบราว์เซอร์ไม่ได้รับอนุญาตให้ใช้กล้อง<br>
+            กรุณากดปุ่มด้านล่างแล้ว <b>อนุญาต (Allow)</b> เมื่อมีข้อความถาม
+        </div>
+        <button class="btn-retry-camera" onclick="retryCameraPermission()">
+            🔄 ลองขอสิทธิ์ใช้กล้องอีกครั้ง
+        </button>
+    </div>
+
+    <div id="status-box">🔄 กำลังเชื่อมต่อระบบ...</div>
+
+    <!-- Debug Console -->
+    <div id="debug-log"></div>
+    <div class="debug-toggle" onclick="toggleDebug()">🔧 แสดง/ซ่อน Debug Log</div>
+
+    <div class="footer">Suranaree University of Technology Hospital</div>
+
+    <script>
+        // ── Auto-detect Web App URL จากลิงก์ปัจจุบัน ──
+        // เมื่อ scanner.html ถูก serve จาก Apps Script → URL เดียวกัน
+        // ตัด query string ออกเหลือแค่ base URL
+        const GOOGLE_URL = (function () {
+            // กรณี serve จาก Google Apps Script
+            var href = window.location.href || '';
+            if (href.indexOf('/exec') !== -1) {
+                return href.split('?')[0]; // ตัด ?params ออก
+            }
+            // Fallback: hardcode URL (สำหรับทดสอบ local)
+            return 'https://script.google.com/macros/s/AKfycbyYFikookLUj_a-dNZPmGbwLRGU8Xee5j5Ipw5ZTGkr1J72hstqRxRsLrBla-zpMGY/exec';
+        })();
+        console.log('🌐 GOOGLE_URL:', GOOGLE_URL);
+        const STATION_ID = "Station-PI-Ward1";
+
+        const client = mqtt.connect('wss://5c43f9d08b6f48a9a160fe907db23534.s1.eu.hivemq.cloud:8884/mqtt', {
+            username: 'pizza_user',
+            password: 'Password123'
+        });
+
+        const statusBox = document.getElementById('status-box');
+        const vehicleSelect = document.getElementById('vehicleSelect');
+        const vehicleStatus = document.getElementById('vehicleStatus');
+        const scannerOverlay = document.getElementById('scannerOverlay');
+        const debugLog = document.getElementById('debug-log');
+        let isProcessing = false;
+
+        // ══════════════════════════════════════
+        //  Debug Logger
+        // ══════════════════════════════════════
+        function logDebug(msg) {
+            var now = new Date().toLocaleTimeString('th-TH');
+            var line = '[' + now + '] ' + msg;
+            console.log(line);
+            debugLog.innerHTML += '<div>' + line + '</div>';
+            debugLog.scrollTop = debugLog.scrollHeight;
+        }
+
+        function toggleDebug() {
+            debugLog.classList.toggle('show');
+        }
+
+        // ══════════════════════════════════════
+        //  Vehicle Loader
+        //  ใช้ google.script.run เมื่อ serve จาก Apps Script
+        //  ใช้ fetch เป็น fallback สำหรับทดสอบ local
+        // ══════════════════════════════════════
+        var GAS = (typeof google !== 'undefined' && google.script) ? google.script.run : null;
+
+        function loadVehicles() {
+            vehicleStatus.className = 'vehicle-status loading';
+            vehicleStatus.innerText = '⏳ กำลังโหลดรายการรถ...';
+            logDebug('📡 กำลังดึงข้อมูลรถ...');
+
+            if (GAS) {
+                // ── ใช้ google.script.run (เร็วกว่า, ไม่ต้องผ่าน URL) ──
+                logDebug('🔗 ใช้ google.script.run.getVehiclesForScanner()');
+                GAS.withSuccessHandler(function (vehicles) {
+                    populateVehicleDropdown(vehicles || []);
+                }).withFailureHandler(function (err) {
+                    logDebug('❌ google.script.run ล้มเหลว: ' + err.message);
+                    // Fallback ไปใช้ fetch
+                    loadVehiclesViaFetch();
+                }).getVehiclesForScanner();
+            } else {
+                // ── Fallback: fetch API ──
+                loadVehiclesViaFetch();
+            }
+        }
+
+        function loadVehiclesViaFetch() {
+            logDebug('🌐 ใช้ fetch: ' + GOOGLE_URL + '?action=getVehicles');
+            var url = GOOGLE_URL + '?action=getVehicles&t=' + Date.now();
+
+            fetch(url)
+                .then(function (res) { return res.json(); })
+                .then(function (vehicles) {
+                    populateVehicleDropdown(vehicles || []);
+                })
+                .catch(function (err) {
+                    logDebug('❌ fetch โหลดรถล้มเหลว: ' + err);
+                    vehicleStatus.className = 'vehicle-status';
+                    vehicleStatus.innerText = '❌ โหลดรถล้มเหลว — กดรีเฟรชหน้าเพื่อลองใหม่';
+                });
+        }
+
+        function populateVehicleDropdown(vehicles) {
+            logDebug('✅ ดึงข้อมูลรถสำเร็จ: ' + vehicles.length + ' คัน');
+
+            // ล้างตัวเลือกเก่า
+            vehicleSelect.innerHTML = '<option value="">-- กรุณาเลือกรถ --</option>';
+
+            vehicles.forEach(function (v) {
+                var opt = document.createElement('option');
+                opt.value = v.vehicleId;
+                opt.textContent = v.name + ' (' + v.vehicleId + ') — ' + v.type;
+                opt.dataset.vehicleName = v.name;
+                vehicleSelect.appendChild(opt);
+                logDebug('   🚛 ' + v.vehicleId + ': ' + v.name + ' [' + v.status + ']');
+            });
+
+            vehicleStatus.className = 'vehicle-status';
+            if (vehicles.length > 0) {
+                vehicleStatus.innerText = '📋 พบรถ ' + vehicles.length + ' คัน — กรุณาเลือก';
+            } else {
+                vehicleStatus.innerText = '⚠️ ไม่พบข้อมูลรถ — กรุณาเพิ่มรถในหน้า Admin';
+            }
+
+            // คืนค่าจาก localStorage
+            var saved = localStorage.getItem('scanner_vehicleId');
+            if (saved) {
+                vehicleSelect.value = saved;
+                if (vehicleSelect.value === saved) {
+                    onVehicleChanged();
+                    logDebug('♻️ คืนค่ารถจาก localStorage: ' + saved);
+                }
+            }
+        }
+
+        // ── เมื่อเลือกรถ ──
+        vehicleSelect.addEventListener('change', onVehicleChanged);
+
+        function onVehicleChanged() {
+            var vID = vehicleSelect.value;
+            if (vID) {
+                var selectedOpt = vehicleSelect.options[vehicleSelect.selectedIndex];
+                var vName = selectedOpt.dataset.vehicleName || vID;
+
+                vehicleSelect.classList.add('selected');
+                vehicleStatus.className = 'vehicle-status active';
+                vehicleStatus.innerText = '✅ กำลังใช้งาน: ' + vName + ' (' + vID + ')';
+
+                // จำไว้ใน localStorage
+                localStorage.setItem('scanner_vehicleId', vID);
+                logDebug('✅ เลือกรถ: ' + vID + ' (' + vName + ')');
+
+                // ถ้า scanner ยังไม่เริ่ม → แสดงปุ่ม Request Camera
+                if (!scannerRunning) {
+                    scannerOverlay.classList.add('show');
+                    document.getElementById('overlayPhase1').style.display = 'none';
+                    document.getElementById('overlayPhase2').style.display = 'block';
+                    statusBox.innerText = '📷 กดปุ่มด้านบนเพื่อเปิดกล้อง';
+                } else {
+                    scannerOverlay.classList.remove('show');
+                    statusBox.innerText = '✅ พร้อมสแกน — รถ: ' + vName;
+                }
+            } else {
+                vehicleSelect.classList.remove('selected');
+                scannerOverlay.classList.add('show');
+                document.getElementById('overlayPhase1').style.display = 'block';
+                document.getElementById('overlayPhase2').style.display = 'none';
+                vehicleStatus.className = 'vehicle-status';
+                vehicleStatus.innerText = '⚠️ กรุณาเลือกรถก่อนเริ่มสแกน';
+                statusBox.innerText = '⚠️ กรุณาเลือกรถก่อน';
+
+                localStorage.removeItem('scanner_vehicleId');
+                logDebug('⚠️ ยกเลิกการเลือกรถ');
+            }
+        }
+
+        // ══════════════════════════════════════
+        //  MQTT Connection
+        // ══════════════════════════════════════
+        client.on('connect', function () {
+            logDebug('📡 MQTT เชื่อมต่อสำเร็จ');
+            if (vehicleSelect.value) {
+                statusBox.innerText = '✅ พร้อมสแกนอัตโนมัติ';
+            }
+        });
+
+        client.on('error', function (err) {
+            logDebug('❌ MQTT Error: ' + err);
+        });
+
+        // ══════════════════════════════════════
+        //  QR Scan Handler
+        // ══════════════════════════════════════
+        function onScanSuccess(decodedText) {
+            if (isProcessing) return;
+
+            // ── Validation: ต้องเลือกรถก่อน ──
+            var selectedVehicleId = vehicleSelect.value;
+            if (!selectedVehicleId) {
+                statusBox.innerText = '⚠️ กรุณาเลือกรถก่อนสแกน!';
+                statusBox.className = 'waiting';
+                logDebug('⛔ สแกนถูกปฏิเสธ — ยังไม่ได้เลือกรถ');
+                return;
+            }
+
+            isProcessing = true;
+            var selectedOpt = vehicleSelect.options[vehicleSelect.selectedIndex];
+            var vehicleName = selectedOpt.dataset.vehicleName || selectedVehicleId;
+
+            logDebug('━━━━━━━━━━━━━━━━━━━━━━━━━━');
+            logDebug('📷 สแกน QR: ' + decodedText.substring(0, 100));
+
+            try {
+                // 1. ล้างค่า % ออกและดึงข้อมูล JSON
+                var cleanText = decodedText;
+                try {
+                    cleanText = decodeURIComponent(decodeURIComponent(decodedText)).trim();
+                } catch (e) {
+                    try {
+                        cleanText = decodeURIComponent(decodedText).trim();
+                    } catch (e2) {
+                        cleanText = decodedText.trim();
+                    }
+                }
+                logDebug('🔤 ข้อมูลหลัง decode: ' + cleanText.substring(0, 100));
+
+                var data = {};
+                try {
+                    data = JSON.parse(cleanText);
+                    logDebug('📦 Parse JSON สำเร็จ: ' + JSON.stringify(data));
+                } catch (e) {
+                    // ถ้า QR ไม่ใช่ JSON ให้สร้าง Object ขึ้นมาเอง
+                    data = { name: cleanText, lat: "0", lng: "0" };
+                    logDebug('📝 ไม่ใช่ JSON → ใช้ข้อความเป็นชื่อ: ' + cleanText);
+                }
+
+                // 2. ตรวจสอบและกำหนดค่า Default
+                var name = data.name || "จุดที่ไม่ระบุชื่อ";
+                var lat = String(data.lat || "0");
+                var lng = String(data.lng || "0");
+
+                statusBox.innerText = "⌛ กำลังบันทึก: " + name + "...";
+                statusBox.className = "waiting";
+
+                logDebug('📍 ชื่อ: ' + name);
+                logDebug('📍 Lat: ' + lat + ' | Lng: ' + lng);
+                logDebug('🚛 รถ: ' + selectedVehicleId + ' (' + vehicleName + ')');
+
+                // 3. ส่ง MQTT (พ่วง vehicleId)
+                var mqttPayload = {
+                    data: { name: name, lat: lat, lng: lng },
+                    user: STATION_ID,
+                    vehicleId: selectedVehicleId,
+                    vehicleName: vehicleName
+                };
+                client.publish('hospital/track', JSON.stringify(mqttPayload), { qos: 1 });
+                logDebug('📡 MQTT ส่งแล้ว: ' + JSON.stringify(mqttPayload));
+
+                // 4. ส่งไป Google Sheets (พ่วง vID)
+                var img = new Image();
+                var url = GOOGLE_URL
+                    + '?vID=' + encodeURIComponent(selectedVehicleId)
+                    + '&n=' + encodeURIComponent(name)
+                    + '&la=' + encodeURIComponent(lat)
+                    + '&lo=' + encodeURIComponent(lng)
+                    + '&u=' + encodeURIComponent(STATION_ID)
+                    + '&t=' + Date.now();
+
+                logDebug('🌐 URL ที่ส่ง: ' + url);
+
+                img.onload = function () {
+                    logDebug('✅ Google Sheets ตอบกลับ (onload)');
+                    showSuccess(name, selectedVehicleId);
+                };
+
+                img.onerror = function () {
+                    // img.onerror ไม่ได้หมายความว่า request ล้มเหลว
+                    // Google Apps Script redirect ทำให้เกิด onerror แต่ข้อมูลอาจเข้าแล้ว
+                    logDebug('⚠️ Google Sheets ตอบกลับ (onerror — อาจเป็น redirect ปกติ)');
+                    showSuccess(name, selectedVehicleId);
+                };
+
+                img.src = url;
+
+            } catch (e) {
+                console.error("Critical Error:", e);
+                logDebug('💥 Critical Error: ' + e.message);
+                statusBox.innerText = "❌ เกิดข้อผิดพลาดในการอ่านข้อมูล";
+                statusBox.className = "error";
+                setTimeout(function () { isProcessing = false; }, 3000);
+            }
+        }
+
+        function showSuccess(locationName, vehicleId) {
+            statusBox.innerText = "🚀 บันทึกสำเร็จ: " + locationName + " [" + vehicleId + "]";
+            statusBox.className = "success";
+
+            // หน่วงเวลา 3 วินาทีแล้วเริ่มสแกนต่อ
+            setTimeout(function () {
+                isProcessing = false;
+                statusBox.innerText = "✅ พร้อมสแกน — รถ: " + vehicleId;
+                statusBox.className = "";
+            }, 3000);
+        }
+
+        // ══════════════════════════════════════
+        //  Camera Permission + Init Scanner
+        // ══════════════════════════════════════
+        var html5Qrcode = null;
+        var scannerRunning = false;
+
+        /**
+         * ขอสิทธิ์กล้องผ่าน getUserMedia (System-level Prompt)
+         * → stop scanner เก่า → เริ่ม Html5Qrcode ใหม่
+         * เรียกจากปุ่มสีส้ม "Request Camera Permissions"
+         */
+        async function requestCameraAndStartScanner() {
+            // ── Guard: ต้องเลือกรถก่อน ──
+            if (!vehicleSelect.value) {
+                statusBox.innerText = '⚠️ กรุณาเลือกรถก่อน';
+                return;
+            }
+
+            var errorBox = document.getElementById('cameraErrorBox');
+            var errorDesc = document.getElementById('cameraErrorDesc');
+            errorBox.classList.remove('show');
+
+            var btnReq = document.getElementById('btnRequestCamera');
+            if (btnReq) { btnReq.disabled = true; btnReq.innerText = '⏳ กำลังขอสิทธิ์...'; }
+
+            logDebug('📷 ขอสิทธิ์กล้องผ่าน getUserMedia...');
+            statusBox.innerText = '📷 กำลังขอสิทธิ์กล้อง...';
+
+            // ── ขั้นที่ 0: ตรวจ Secure Context ──
+            if (!window.isSecureContext) {
+                logDebug('🔴 Insecure Context — กล้องจะไม่ทำงาน');
+                errorDesc.innerHTML = '🔴 <b>Insecure Context</b>: หน้านี้ไม่ได้เปิดผ่าน HTTPS<br>กล้องจะไม่ทำงาน — กรุณาเปิดผ่านลิงก์ Apps Script โดยตรง';
+                errorBox.classList.add('show');
+                statusBox.innerText = '❌ ต้องเปิดผ่าน HTTPS';
+                if (btnReq) { btnReq.disabled = false; btnReq.innerText = '📷 Request Camera Permissions'; }
+                return;
+            }
+
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                logDebug('🔴 Browser ไม่รองรับ getUserMedia');
+                errorDesc.innerHTML = '🔴 <b>Browser ไม่รองรับ</b>: เบราว์เซอร์นี้ไม่รองรับการเข้าถึงกล้อง<br>กรุณาใช้ Chrome หรือ Safari เวอร์ชันล่าสุด';
+                errorBox.classList.add('show');
+                statusBox.innerText = '❌ Browser ไม่รองรับกล้อง';
+                if (btnReq) { btnReq.disabled = false; btnReq.innerText = '📷 Request Camera Permissions'; }
+                return;
+            }
+
+            try {
+                // ── ขั้นที่ 1: getUserMedia → System-level Permission Prompt ──
+                logDebug('📷 เรียก navigator.mediaDevices.getUserMedia...');
+                var stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'environment' }
+                });
+                logDebug('✅ ได้รับสิทธิ์กล้องแล้ว — tracks: ' + stream.getTracks().length);
+
+                // ปิด stream ทันที (ให้ Html5Qrcode จัดการเปิดเอง)
+                stream.getTracks().forEach(function (track) {
+                    logDebug('   → stop track: ' + track.kind + ' (' + track.label + ')');
+                    track.stop();
+                });
+
+                // ── ขั้นที่ 2: หยุด scanner เก่า (ถ้ามี) ──
+                if (html5Qrcode && scannerRunning) {
+                    logDebug('🔄 หยุด scanner เก่าก่อนเริ่มใหม่...');
+                    try { await html5Qrcode.stop(); } catch (e) { logDebug('   → stop error (ไม่สำคัญ): ' + e); }
+                    scannerRunning = false;
+                    html5Qrcode = null;
+                }
+
+                // ── ขั้นที่ 3: เริ่ม Scanner ใหม่ ──
+                startQrScanner();
+
+            } catch (err) {
+                console.error('Camera permission error:', err);
+                var errName = err.name || 'UnknownError';
+                var errMsg = err.message || '';
+                logDebug('❌ Camera Error [' + errName + ']: ' + errMsg);
+
+                var msg = '';
+                if (errName === 'NotAllowedError') {
+                    logDebug('🔴 Browser Blocked — ผู้ใช้ปฏิเสธหรือ browser block');
+                    msg = '🔴 <b>Browser Blocked</b>: เบราว์เซอร์บล็อกการเข้าถึงกล้อง<br><br>';
+                    msg += '👉 <b>iOS Safari</b>: ไปที่ Settings → Safari → Camera → Allow<br>';
+                    msg += '👉 <b>Android Chrome</b>: กดไอคอน 🔒 ข้างช่อง URL → Site settings → Camera → Allow<br>';
+                    msg += '👉 ลองปิดแท็บแล้วเปิดลิงก์ใหม่อีกครั้ง';
+                } else if (errName === 'NotFoundError') {
+                    msg = '📵 <b>ไม่พบกล้อง</b>: ไม่พบกล้องในอุปกรณ์นี้';
+                } else if (errName === 'NotReadableError') {
+                    msg = '🔒 <b>กล้องถูกล็อก</b>: กล้องถูกใช้งานโดยแอปอื่นอยู่<br>กรุณาปิดแอปกล้อง/วิดีโอคอลแล้วลองใหม่';
+                } else if (errName === 'OverconstrainedError') {
+                    msg = '⚙️ <b>กล้องไม่รองรับ</b>: ไม่สามารถใช้กล้องหลังได้<br>ลองใช้กล้องหน้าแทน';
+                } else if (errName === 'TypeError') {
+                    msg = '🔴 <b>Insecure Context</b>: getUserMedia ไม่พร้อมใช้งาน — ต้องเปิดผ่าน HTTPS';
+                } else {
+                    msg = '❌ <b>' + errName + '</b>: ' + (errMsg || 'เกิดข้อผิดพลาดไม่ทราบสาเหตุ');
+                }
+
+                errorDesc.innerHTML = msg;
+                errorBox.classList.add('show');
+                statusBox.innerText = '❌ ไม่สามารถเข้าถึงกล้อง';
+                if (btnReq) { btnReq.disabled = false; btnReq.innerText = '📷 Request Camera Permissions'; }
+            }
+        }
+
+        /**
+         * เริ่ม QR Scanner — ลอง exact:environment ก่อน ถ้าไม่ได้ fallback
+         */
+        async function startQrScanner() {
+            // ── ล้างกล้องเก่าก่อนเสมอ ──
+            if (html5Qrcode) {
+                try {
+                    if (html5Qrcode.isScanning) {
+                        logDebug('🔄 กล้องค้างอยู่ → หยุดก่อน...');
+                        await html5Qrcode.stop();
+                    }
+                } catch (e) { logDebug('   → stop error (ไม่สำคัญ): ' + e); }
+                html5Qrcode = null;
+                scannerRunning = false;
+            }
+
+            html5Qrcode = new Html5Qrcode('reader');
+            var scanConfig = { fps: 15, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 };
+
+            // ── ลอง exact:environment ก่อน (บังคับกล้องหลัง) ──
+            try {
+                logDebug('📷 ลอง facingMode: {exact: "environment"}...');
+                await html5Qrcode.start(
+                    { facingMode: { exact: 'environment' } },
+                    scanConfig,
+                    onScanSuccess,
+                    function () { }
+                );
+                scannerRunning = true;
+                logDebug('✅ Scanner เริ่มทำงาน (exact: environment)');
+                onScannerReady();
+                return;
+            } catch (exactErr) {
+                logDebug('⚠️ exact:environment ล้มเหลว: ' + exactErr);
+                logDebug('📷 Fallback → facingMode: "environment"...');
+            }
+
+            // ── Fallback: environment ธรรมดา ──
+            try {
+                // ต้องสร้าง instance ใหม่หลัง start ล้มเหลว
+                html5Qrcode = new Html5Qrcode('reader');
+                await html5Qrcode.start(
+                    { facingMode: 'environment' },
+                    scanConfig,
+                    onScanSuccess,
+                    function () { }
+                );
+                scannerRunning = true;
+                logDebug('✅ Scanner เริ่มทำงาน (fallback: environment)');
+                onScannerReady();
+            } catch (fallbackErr) {
+                logDebug('❌ Scanner start failed (ทั้ง 2 วิธี): ' + fallbackErr);
+                document.getElementById('cameraErrorBox').classList.add('show');
+                statusBox.innerText = '❌ ไม่สามารถเปิดกล้อง';
+                var btnReq = document.getElementById('btnRequestCamera');
+                if (btnReq) { btnReq.disabled = false; btnReq.innerText = '📷 Request Camera Permissions'; }
+            }
+        }
+
+        /** เมื่อ Scanner พร้อม → ซ่อน overlay แสดงกล้อง */
+        function onScannerReady() {
+            scannerOverlay.classList.remove('show');
+            document.getElementById('cameraErrorBox').classList.remove('show');
+            var vName = vehicleSelect.options[vehicleSelect.selectedIndex].dataset.vehicleName || vehicleSelect.value;
+            statusBox.innerText = '✅ พร้อมสแกน — รถ: ' + vName;
+        }
+
+        /**
+         * ปุ่ม "ลองขอสิทธิ์ใช้กล้องอีกครั้ง" (ใน error box)
+         */
+        async function retryCameraPermission() {
+            logDebug('🔄 กดลองขอสิทธิ์กล้องอีกครั้ง...');
+            if (html5Qrcode && scannerRunning) {
+                try { await html5Qrcode.stop(); scannerRunning = false; } catch (e) { }
+            }
+            requestCameraAndStartScanner();
+        }
+
+        // ── โหลดรายการรถเท่านั้น (ไม่เปิดกล้องอัตโนมัติ) ──
+        loadVehicles();
+    </script>
+</body>
+
+</html>
